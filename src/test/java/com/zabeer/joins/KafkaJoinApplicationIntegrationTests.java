@@ -16,6 +16,7 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.awaitility.Awaitility;
 import org.awaitility.Duration;
+import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -31,20 +32,19 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import static com.zabeer.joins.TopicConstants.*;
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Integration test using Embedded Kafka and Mock Schema Registry
+ */
+
+
 @SpringBootTest
-@EmbeddedKafka(topics = {KafkaJoinApplicationTests.COUNTRY_TOPIC, KafkaJoinApplicationTests.DEVELOPER_TOPIC, KafkaJoinApplicationTests.DEVELOPER_COUNTRY_TOPIC, KafkaJoinApplicationTests.DEVELOPER_COUNTRY_TO_DEVEOPER_TOPIC, KafkaJoinApplicationTests.DEVELOPER_COUNTRY_DEVELOPER_TO_COUNTRY_TOPIC},
+@EmbeddedKafka(topics = {COUNTRY_TOPIC, DEVELOPER_TOPIC, DEVELOPER_COUNTRY_TOPIC, DEVELOPER_COUNTRY_TO_DEVELOPER_TOPIC, DEVELOPER_COUNTRY_DEVELOPER_TO_COUNTRY_TOPIC},
         partitions = 1,
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
-public class KafkaJoinApplicationTests {
-
-    public static final String COUNTRY_TOPIC = "country";
-    public static final String DEVELOPER_TOPIC = "developer";
-    public static final String DEVELOPER_COUNTRY_TOPIC = "developer-country";
-    public static final String DEVELOPER_COUNTRY_TO_DEVEOPER_TOPIC = "developercountry-to-developer";
-    public static final String DEVELOPER_COUNTRY_DEVELOPER_TO_COUNTRY_TOPIC = "developercountrydeveloper-to-country";
-    public static final String GROUP_NAME = "testGrp";
+public class KafkaJoinApplicationIntegrationTests {
 
 
     @Test
@@ -59,10 +59,7 @@ public class KafkaJoinApplicationTests {
 
         KafkaTemplate<String, DeveloperCountry> devCountryTemplate = new KafkaTemplate<>(devCountryPf, true);
         devCountryTemplate.setDefaultTopic(DEVELOPER_COUNTRY_TOPIC);
-        DeveloperCountry devCountry = new DeveloperCountry();
-        devCountry.setDeveloperId("100");
-        devCountry.setCountryId("1");
-        devCountry.setRelation("Citizen");
+        DeveloperCountry devCountry = getDeveloperCountry();
         ProducerRecord<String, DeveloperCountry> devCountryRecord = new ProducerRecord<>(DEVELOPER_COUNTRY_TOPIC, devCountry.getDeveloperId().toString(), devCountry);
         devCountryTemplate.send(devCountryRecord);
 
@@ -70,11 +67,7 @@ public class KafkaJoinApplicationTests {
 
         KafkaTemplate<String, Developer> devTemplate = new KafkaTemplate<>(devPf, true);
         devTemplate.setDefaultTopic(DEVELOPER_TOPIC);
-        Developer developer = new Developer();
-        developer.setId("100");
-        developer.setName("Tim");
-        developer.setExperienceLevel("Beginner");
-        developer.setSkill("Java");
+        Developer developer = getDeveloper();
         ProducerRecord<String, Developer> devRecord = new ProducerRecord<>(DEVELOPER_TOPIC, developer.getId().toString(), developer);
         devTemplate.send(devRecord);
 
@@ -83,11 +76,7 @@ public class KafkaJoinApplicationTests {
 
         KafkaTemplate<String, Country> countryTemplate = new KafkaTemplate<>(countryPf, true);
         countryTemplate.setDefaultTopic(COUNTRY_TOPIC);
-        Country country = new Country();
-        country.setId("1");
-        country.setCode("IND");
-        country.setCodeIso2("IN");
-        country.setDescription("India");
+        Country country = getCountry();
         ProducerRecord<String, Country> countryRecord = new ProducerRecord<>(COUNTRY_TOPIC, country.getId().toString(), country);
         countryTemplate.send(countryRecord);
 
@@ -98,36 +87,92 @@ public class KafkaJoinApplicationTests {
         consumerProps.put("schema.registry.url", "mock://8081");
 
         consumerProps.put(KafkaAvroDeserializerConfig.SPECIFIC_AVRO_READER_CONFIG, true);
+
+
         DefaultKafkaConsumerFactory<String, DeveloperCountryJoinResult> cf = new DefaultKafkaConsumerFactory<>(consumerProps);
 
-        Consumer<String, DeveloperCountryJoinResult> consumer = cf.createConsumer();
-        consumer.assign(Collections.singleton(new TopicPartition(DEVELOPER_COUNTRY_DEVELOPER_TO_COUNTRY_TOPIC, 0)));
+        Consumer<String, DeveloperCountryJoinResult> intermediateTopicConsumer = cf.createConsumer();
+        intermediateTopicConsumer.assign(Collections.singleton(new TopicPartition(DEVELOPER_COUNTRY_TO_DEVELOPER_TOPIC, 0)));
+        List<ConsumerRecord<String, DeveloperCountryJoinResult>> intermediateJoinResults = new ArrayList<>();
 
-
-        List<ConsumerRecord<String, DeveloperCountryJoinResult>> allRecords = new ArrayList<>();
-        long assertStartTime = System.currentTimeMillis();
+        long assertStartTimeForIntermediateTopic = System.currentTimeMillis();
         Awaitility.await()
                 .atMost(Duration.TWO_MINUTES)
                 .pollInterval(Duration.TWO_HUNDRED_MILLISECONDS).until(() -> {
-            consumer.poll(java.time.Duration.ofMillis(50))
+            intermediateTopicConsumer.poll(java.time.Duration.ofMillis(50))
                     .iterator()
-                    .forEachRemaining(allRecords::add);
-            consumer.commitSync();
-            return allRecords.size() > 0;
+                    .forEachRemaining(intermediateJoinResults::add);
+            intermediateTopicConsumer.commitSync();
+            return intermediateJoinResults.size() > 0;
         });
 
-        assertThat(allRecords.size()).isEqualTo(1);
+        assertThat(intermediateJoinResults.size()).isGreaterThan(0);
 
-        DeveloperCountryJoinResult finalResult = allRecords.get(0).value();
+        DeveloperCountryJoinResult intermediateResult = intermediateJoinResults.get(0).value();
+        assertThat(intermediateResult.getDeveloperId().toString()).isEqualTo(developer.getId().toString());
+        assertThat(intermediateResult.getCountryId().toString()).isEqualTo(country.getId().toString());
+        assertThat(intermediateResult.getDeveloperName().toString()).isEqualTo(developer.getName().toString());
+        assertThat(intermediateResult.getRelation().toString()).isEqualTo(devCountry.getRelation().toString());
+
+        System.out.printf("Time taken for reading intermediate topic %d ms", System.currentTimeMillis() - assertStartTimeForIntermediateTopic);
+
+
+        Consumer<String, DeveloperCountryJoinResult> finalTopicConsumer = cf.createConsumer();
+        finalTopicConsumer.assign(Collections.singleton(new TopicPartition(DEVELOPER_COUNTRY_DEVELOPER_TO_COUNTRY_TOPIC, 0)));
+        List<ConsumerRecord<String, DeveloperCountryJoinResult>> finalJoinResults = new ArrayList<>();
+
+
+
+        long assertStartTimeForFinalTopic = System.currentTimeMillis();
+        Awaitility.await()
+                .atMost(Duration.TWO_MINUTES)
+                .pollInterval(Duration.TWO_HUNDRED_MILLISECONDS).until(() -> {
+            finalTopicConsumer.poll(java.time.Duration.ofMillis(50))
+                    .iterator()
+                    .forEachRemaining(finalJoinResults::add);
+            finalTopicConsumer.commitSync();
+            return finalJoinResults.size() > 0;
+        });
+
+        assertThat(finalJoinResults.size()).isGreaterThan(0);
+
+        DeveloperCountryJoinResult finalResult = finalJoinResults.get(0).value();
         assertThat(finalResult.getDeveloperId().toString()).isEqualTo(developer.getId().toString());
         assertThat(finalResult.getCountryCode().toString()).isEqualTo(country.getCode().toString());
         assertThat(finalResult.getDeveloperName().toString()).isEqualTo(developer.getName().toString());
         assertThat(finalResult.getRelation().toString()).isEqualTo(devCountry.getRelation().toString());
 
-        long assertEndTime = System.currentTimeMillis();
+        System.out.printf("Time taken for reading final topic %d ms", System.currentTimeMillis() - assertStartTimeForFinalTopic);
 
-        System.out.printf("Time taken  %d ms", assertEndTime - assertStartTime);
+    }
 
+    @NotNull
+    private Developer getDeveloper() {
+        Developer developer = new Developer();
+        developer.setId("100");
+        developer.setName("Tim");
+        developer.setExperienceLevel("Beginner");
+        developer.setSkill("Java");
+        return developer;
+    }
+
+    @NotNull
+    private Country getCountry() {
+        Country country = new Country();
+        country.setId("1");
+        country.setCode("IND");
+        country.setCodeIso2("IN");
+        country.setDescription("India");
+        return country;
+    }
+
+    @NotNull
+    private DeveloperCountry getDeveloperCountry() {
+        DeveloperCountry devCountry = new DeveloperCountry();
+        devCountry.setDeveloperId("100");
+        devCountry.setCountryId("1");
+        devCountry.setRelation("Citizen");
+        return devCountry;
     }
 
 
