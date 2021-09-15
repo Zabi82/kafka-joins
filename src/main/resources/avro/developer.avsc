@@ -1,0 +1,11 @@
+{
+  "namespace" : "com.zabeer.joins.model",
+  "type" : "record",
+  "name" : "Developer",
+  "fields" : [
+    {"name":"id","type":"string"},
+    {"name":"name","type":"string"},
+    {"name":"experienceLevel", "type":"string"},
+    {"name":"skill", "type":"string"}
+   ]
+}

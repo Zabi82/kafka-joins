@@ -1,0 +1,11 @@
+{
+  "namespace" : "com.zabeer.joins.model",
+  "type" : "record",
+  "name" : "DeveloperCountry",
+  "fields" : [
+    {"name":"developerId","type":"string"},
+    {"name":"countryId", "type":"string"},
+    {"name":"relation", "type":"string"}
+
+   ]
+}

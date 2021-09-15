@@ -1,0 +1,12 @@
+{
+  "namespace" : "com.zabeer.joins.model",
+  "type" : "record",
+  "name" : "Country",
+  "fields" : [
+    {"name":"id","type":"string"},
+    {"name":"code", "type":"string"},
+    {"name":"code_iso2", "type":"string"},
+    {"name":"description", "type":"string"}
+
+   ]
+}

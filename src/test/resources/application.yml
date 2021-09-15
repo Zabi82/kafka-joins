@@ -1,0 +1,44 @@
+spring:
+  cloud:
+    stream:
+      function:
+        definition: developerCountryToDeveloperJoin;developerCountryDeveloperToCountryJoin;consumeFinalMessage
+      bindings:
+        developerCountryToDeveloperJoin-in-0:
+          destination: developer-country
+          group: testGrp
+        developerCountryToDeveloperJoin-in-1:
+          destination: developer
+          group: testGrp
+        developerCountryToDeveloperJoin-out-0:
+          destination: developercountry-to-developer
+        developerCountryDeveloperToCountryJoin-in-0:
+          destination: developercountry-to-developer
+          group: testGrp
+        developerCountryDeveloperToCountryJoin-in-1:
+          destination: country
+          group: testGrp
+        developerCountryDeveloperToCountryJoin-out-0:
+          destination: developercountrydeveloper-to-country
+        consumeFinalMessage-in-0:
+          destination: developercountrydeveloper-to-country
+          group: testGrp
+
+
+
+      kafka:
+        broker: "${spring.embedded.kafka.brokers:#{localhost:9092}}"
+        bindings:
+        streams:
+          binder:
+            configuration:
+              schema.registry.url: mock://8081
+              specific.avro.reader: true
+              auto.register.schemas: true
+              default.key.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+              default.value.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+
+
+
+
+

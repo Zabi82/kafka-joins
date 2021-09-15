@@ -1,0 +1,16 @@
+{
+  "namespace" : "com.zabeer.joins.model",
+  "type" : "record",
+  "name" : "DeveloperCountryJoinResult",
+  "fields" : [
+    {"name":"developerId","type":"string"},
+    {"name":"developerName","type":"string"},
+    {"name":"countryId", "type":"string"},
+    {"name":"countryCode", "type":"string"},
+    {"name":"countryName", "type":"string"},
+    {"name":"skill", "type":"string"},
+    {"name":"expLevel", "type":"string"},
+    {"name":"relation", "type":"string"}
+
+   ]
+}
